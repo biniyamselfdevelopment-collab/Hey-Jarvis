@@ -1,0 +1,14 @@
+{
+  "name": "hey-jarvis",
+  "private": true,
+  "version": "0.0.1",
+  "description": "A friendly voice-first helper that lives in your screen's notch and actually does things.",
+  "packageManager": "pnpm@10.28.0",
+  "scripts": {
+    "dev": "pnpm --filter @hey-jarvis/desktop tauri dev",
+    "core": "pnpm --filter @hey-jarvis/core start",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  }
+}
