@@ -50,6 +50,7 @@ class SpeechQueue:
         self._queue: queue.Queue[tuple[str, bool]] = queue.Queue()
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tts")
         self._interrupted = threading.Event()
+        self._warned = False
         threading.Thread(target=self._run, name="speech", daemon=True).start()
 
     def say(self, text: str, expect_reply: bool) -> None:
@@ -85,7 +86,14 @@ class SpeechQueue:
                 if upcoming:
                     future = self._pool.submit(self._synth.synth, upcoming[0])
                     expect_reply = expect_reply or upcoming[1]
-                if not self._player.play(samples, rate) or self._interrupted.is_set():
+                try:
+                    played = self._player.play(samples, rate)
+                except Exception as err:  # noqa: BLE001 — e.g. no output device; keep the thread alive
+                    if not self._warned:
+                        status("error", f"Couldn't play audio: {err}")
+                        self._warned = True
+                    played = True  # treat as spoken; captions still show the text
+                if not played or self._interrupted.is_set():
                     self._drain()
                     break
                 if upcoming is None:
@@ -182,6 +190,7 @@ def main() -> int:
         rate = mic.start()
         log(f"microphone open at {rate} Hz")
     except Exception as err:  # noqa: BLE001
+        engine.mic_ok = False
         status("error", f"Couldn't open the microphone: {err}")
 
     for line in sys.stdin:

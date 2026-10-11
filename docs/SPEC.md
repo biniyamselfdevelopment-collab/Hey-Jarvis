@@ -5,7 +5,7 @@
 > Code, posts to your socials, handles email and calendar, and points at things on
 > your screen.
 
-Status: **v0 spec + scaffold** · Owner: personal project · Last updated: 2026-10-11
+Status: **M1 (voice loop) built** · Owner: personal project · Last updated: 2026-10-11
 
 ---
 
@@ -14,12 +14,12 @@ Status: **v0 spec + scaffold** · Owner: personal project · Last updated: 2026-
 | Topic | Decision |
 |---|---|
 | Platforms | **Cross-platform from day one**: Windows, macOS, Linux. Primary dev machine is a PC with an RTX 3070 (8 GB), so **Windows gets polished first**. |
-| Stack | **Tauri 2** (Rust shell + React/TypeScript UI) plus a **TypeScript agent core** that runs as a sidecar process. |
-| Models | **Whatever the user prefers.** OpenCode server, local coding-agent CLIs (the Open Design approach), or bring your own key (BYOK) for any OpenAI-compatible, Anthropic or Ollama endpoint. |
+| Stack | **Tauri 2** (Rust shell + React/TypeScript UI), a **TypeScript agent core** sidecar, and a **Python voice sidecar** run through `uv`. |
+| Models | **OpenCode is the default brain**: the user's PC can't run good local models, OpenCode is fast and codes well, and it's already installed. BYOK through the native loop is still supported. |
 | Web search | **Built in.** Works with no API key; Brave, Tavily or Exa are optional upgrades. |
 | Activation | **"Hey Jarvis" wake word** detected on-device. Typed input is available as a fallback. |
 | Speech-to-text | **Local Whisper** (whisper.cpp on CUDA). |
-| Voice output | **Local TTS**: Kokoro by default, Piper as a fallback. |
+| Voice output | **Local TTS with Kokoro**, voice `af_heart` (American English) by default. |
 | Screen | **See, point and act**, like Hey Clicky: screenshots, an on-screen pointer, clicking and typing. |
 | Safety | **Risky actions need a confirmation, and you can give it by voice** ("yes, go ahead" / "no, cancel"). |
 | Coding agents | **Claude Agent SDK** for Claude Code. OpenCode sessions are a second delegate. |
@@ -37,72 +37,68 @@ Status: **v0 spec + scaffold** · Owner: personal project · Last updated: 2026-
 ## 2. Architecture
 
 ```
-┌───────────────────────────── Tauri app (Rust) ──────────────────────────────┐
-│                                                                             │
-│  Pill window (React)       Voice engine                  OS bridge          │
-│  ┌──────────────┐          ┌──────────────────────┐      ┌───────────────┐  │
-│  │ idle/listen/ │◀─events──│ mic (cpal, 16 kHz)   │      │ screenshots   │  │
-│  │ think/speak/ │          │  └▶ wake word (ONNX) │      │ (xcap)        │  │
-│  │ confirm      │──cmds───▶│  └▶ VAD → Whisper    │      │ mouse/keys    │  │
-│  └──────────────┘          │ TTS (Kokoro ONNX)───▶│spk   │ (enigo)       │  │
-│                            └─────────┬────────────┘      │ a11y tree     │  │
-│                                      │ text              │ keychain      │  │
-│                    JSON lines over stdio                 └──────▲────────┘  │
-└──────────────────────────────────────┼──────────────────────────┼───────────┘
-                                       ▼                          │ host tools
-┌──────────────────────── Agent core (TypeScript sidecar) ───────────────────┐
-│  Brain router ── native loop (AI SDK) ── tool registry ── permission gate  │
-│      │                                     │                    │          │
-│      ├─ OpenCode server (localhost:4096)   ├─ web search/fetch  └─ voice/UI│
-│      ├─ agent CLIs: claude, codex, …       ├─ apps/files/shell     confirm │
-│      └─ BYOK: OpenAI-compat, Anthropic,    ├─ Claude Code (Agent SDK)      │
-│               Ollama, OpenCode Zen         ├─ social / email / calendar    │
-│                                            ├─ MCP client (any server)      │
-│  Memory (SQLite) · Skills · Routines       └─ screen tools (via host)      │
-└────────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────── Tauri app (Rust) ───────────────────────────────┐
+│  Pill window (React)  ◀── events ──  Router (pure, unit-tested)  ── hotkeys    │
+│  top-center, click-through          merges core + voice state     tray         │
+│                                      │                  │                       │
+│                       JSON lines/stdio                  JSON lines/stdio        │
+└──────────────────────────────────────┼──────────────────┼──────────────────────┘
+                                       ▼                  ▼
+┌──────────── Agent core (TypeScript) ───────────┐   ┌──── Voice (Python, uv) ────┐
+│ Jarvis: turns, permission gate (voice "yes")   │   │ mic 16 kHz → "Hey Jarvis"  │
+│  ├─ OpencodeBrain ──▶ private `opencode serve` │   │ (openWakeWord ONNX) → VAD  │
+│  │     "jarvis" agent + persona injected        │   │ (Silero) → Whisper (CUDA)  │
+│  │     permission.asked ─▶ voice gate           │   │ Kokoro TTS, sentence queue │
+│  │     MCP ◀─┐                                  │   │ barge-in, reply window     │
+│  └─ NativeBrain (AI SDK, BYOK)                  │   └────────────────────────────┘
+│  Jarvis MCP server (127.0.0.1, bearer token) ───┘
+│   web_search · open_app · open_url · claude_code …
+└────────────────────────────────────────────────┘
 ```
 
 ### Why it's split this way
-- **Rust owns anything that is real-time or touches the OS**: audio, wake word, Whisper, TTS, screen capture, input injection and the keychain. These need low latency and native APIs, and Rust has good cross-platform crates for all of them.
-- **TypeScript owns the brain.** The AI SDK, the Claude Agent SDK, the OpenCode SDK and the MCP SDK are all strongest in TS, and iterating on agent logic in TS is fast.
-- The core speaks a small **JSON-lines protocol** over stdio (`packages/core/src/protocol.ts`), so it can be run, tested and debugged headless without the desktop app.
-- For release, the core is compiled into a single binary with `bun build --compile` and shipped as a Tauri sidecar.
+- **The Rust host is a thin hub.** It owns the window, tray, hotkeys and click-through, and routes messages. Routing is a pure state machine (`router.rs`) with unit tests.
+- **TypeScript owns the brain.** The OpenCode SDK, the MCP SDK, the AI SDK and the Claude Agent SDK are all strongest in TS.
+- **Python owns the voice.** We first planned a Rust voice engine (§4 of v0). In practice, Kokoro needs an espeak phonemizer, and whisper.cpp needs CUDA and clang toolchains to build on Windows. With Python, `faster-whisper` ships CUDA as pip wheels and `kokoro-onnx` bundles espeak. `uv` makes it a one-command install. The wake word runs the openWakeWord ONNX models directly on onnxruntime, which avoids openwakeword's Linux-only dependencies.
+- **Clean shutdown.**
+  - On quit, the host closes each sidecar's stdin, and the core then stops OpenCode by killing its whole process tree.
+  - On Windows, a Job Object kills every child process, even if Jarvis crashes.
 
 ---
 
-## 3. The brain: how Jarvis connects to models
+## 3. The brain: OpenCode
 
-Jarvis copies **Open Design's** approach. It detects what you already have and lets you choose, and it never forces a particular vendor.
+The core launches its **own private `opencode serve`** on a free port, so it never clashes with your own OpenCode. Through `OPENCODE_CONFIG_CONTENT`, the core adds three things, which merge with your OpenCode config and login:
+1. A primary agent called **`jarvis`**, with Jarvis's persona and voice-friendly permissions:
+   - `bash`, `edit` and `external_directory` are set to **ask**.
+   - `question` is denied, because a voice assistant can't answer multiple-choice prompts.
+   - Reading files and fetching web pages are allowed.
+2. **Jarvis's tools as a remote MCP server** on 127.0.0.1, protected by a random bearer token. They show up in OpenCode as `jarvis_web_search`, `jarvis_open_app`, `jarvis_open_url` and `jarvis_claude_code`.
+3. An optional `opencode.model` (`provider/model`). Without it, OpenCode's default model is used.
 
-1. **OpenCode server.** If `opencode serve` is running (default `http://localhost:4096`), Jarvis can hand work to OpenCode sessions. Every provider and model you've set up in OpenCode becomes available.
-2. **Local agent CLIs.** Jarvis scans your `PATH` for `claude`, `codex`, `opencode`, `gemini` and similar tools, the same way Open Design does. Claude Code is driven through the **Claude Agent SDK**.
-3. **BYOK endpoints** for Jarvis's own fast loop:
-   - OpenAI-compatible: OpenAI, OpenRouter, **OpenCode Zen**, Groq, LM Studio and others
-   - Anthropic
-   - **Ollama** (fully local; works on the 3070 with a small model)
+How a turn works:
+- OpenCode's `permission.asked` events, with a polling backup, are turned into spoken questions. Jarvis says something like *"I'd like to run a command to clean your downloads folder. Should I go ahead?"*, and your yes or no is sent back as the reply.
+- Text arrives as `message.part.delta` events. The core streams it **sentence by sentence** into the voice, so Jarvis starts talking before OpenCode has finished writing.
+- OpenCode's event stream can lag in folders that aren't git repos. To stay correct, deltas only count when they belong to the current turn's user message, and anything the stream missed is spoken from the final response.
+- OpenCode works in **`~/.hey-jarvis/workspace`**, a small git repo that Jarvis creates. Events stream in real time there, and OpenCode doesn't index your whole home folder. The prompt tells the model where your own files are.
 
-### Two layers
-- **Native loop (the default).** Jarvis's own tool-calling loop, built on the AI SDK and pointed at a fast model. It handles about 90% of requests: quick answers, web lookups, opening apps, confirmations. The latency goal is about 1.5 s from the end of speech to the first spoken word.
-- **Delegates.** For heavy, multi-step work (coding, long research), the native loop calls a *delegate tool* such as `claude_code` or `opencode_session`. Jarvis narrates progress ("Claude's running the tests now…") and summarises the result out loud.
-- **Fallback.** With no BYOK model set up, the router runs the whole turn through a delegate instead. Jarvis's own tools are exposed to it as a local **`jarvis` MCP server**, so it can still click, search and post.
+The **native loop** (AI SDK on BYOK, Ollama or OpenCode Zen) remains available with `"brain": "native"`.
 
 ---
 
-## 4. Voice pipeline
+## 4. Voice pipeline (apps/voice)
 
-| Stage | Choice | Notes |
+| Stage | Implementation | Notes |
 |---|---|---|
-| Capture | `cpal` at 16 kHz mono | Device selectable in settings |
-| Wake word | **openWakeWord**, pretrained `hey_jarvis` model, run in ONNX Runtime (`ort`) | CPU, about 1–2% of one core |
-| End of speech | Silero VAD (ONNX) | Ends the utterance after about 700 ms of silence |
-| STT | **whisper.cpp** via `whisper-rs` with the `cuda` feature | `small.en` (about 1 GB VRAM) by default; `medium` is optional |
-| TTS | **Kokoro-82M** (ONNX) | CPU or GPU; streams sentence by sentence. Piper is the fallback. |
-| Barge-in | If the wake word fires while Jarvis is speaking, TTS stops | |
-| Follow-up | After Jarvis speaks, the mic stays open for about 6 s with no wake word | This is what makes voice confirmations natural |
+| Capture | `sounddevice` at 16 kHz mono | Resamples if the device can't do 16 kHz |
+| Wake word | openWakeWord `hey_jarvis` ONNX models (melspectrogram → embedding → head) on onnxruntime | CPU. Tested: about 0.99 on "Hey Jarvis", 0.00 on other speech |
+| End of speech | Silero VAD v4 (ONNX) | 800 ms of silence; 5 s to start talking; 20 s maximum |
+| STT | `faster-whisper` `small.en`, CUDA float16 with automatic CPU int8 fallback | About 1 GB VRAM; filters out common Whisper hallucinations |
+| TTS | Kokoro-82M ONNX, `af_heart` | CPU, about 0.4× real time; synthesises the next sentence while the current one plays |
+| Barge-in | Saying "Hey Jarvis" while Jarvis talks (score ≥ 0.8) cuts the speech | A higher bar so Jarvis's own voice can't wake it |
+| Reply window | After a question (`expectReply`), the mic stays open about 8 s without the wake word | Used for voice confirmations |
 
-**Voice confirmation flow.** When the agent calls a risky tool, the core sends `confirm_request`. Jarvis says something like *"I'm about to post this to X and LinkedIn: '…'. Should I go ahead?"* and the pill shows Approve / Cancel. The next utterance goes through `parseConfirmation()`: "yes / go ahead / do it / send it" approves, and "no / cancel / wait / stop" denies. If the answer is unclear, Jarvis asks once more, then cancels.
-
----
+Models (about 330 MB, plus Whisper) download to `~/.hey-jarvis/models` on first run, or ahead of time with `scripts/setup.ps1`.
 
 ## 5. Tools and permissions
 
@@ -152,8 +148,8 @@ You can override each tool in settings with `allow` / `ask` / `deny`. Every acti
 
 | # | Milestone | What "done" looks like |
 |---|---|---|
-| **M0** | Spec + scaffold *(this commit)* | Monorepo builds, the core runs headless over stdio, the pill renders its states, tests pass |
-| **M1** | **Voice loop** | "Hey Jarvis, what's the weather in Addis?" → wake → Whisper → native loop + web search → Kokoro speaks, in under 2 s on the 3070 |
+| **M0** | Spec + scaffold ✅ | Monorepo builds, the core runs headless over stdio, the pill renders its states, tests pass |
+| **M1** | **Voice loop** ✅ | "Hey Jarvis …" → wake → Whisper → OpenCode brain + Jarvis MCP tools → streamed Kokoro speech; voice confirmations for risky actions |
 | **M2** | Core tools | Apps, files, shell and Claude Code via the Agent SDK, with voice confirmation working end to end |
 | **M3** | Screen | Screenshot + vision model, pointer overlay, click and type with confirmation, accessibility-tree reading |
 | **M4** | Accounts | OAuth connections, email, calendar, Slack, social posting (APIs plus the browser fallback) |
@@ -164,8 +160,9 @@ You can override each tool in settings with `allow` / `ask` / `deny`. Every acti
 
 ## 9. Risks and open questions
 
-- **Rust ONNX voice stack.** openWakeWord's pipeline (melspectrogram → embedding → `hey_jarvis` head) has to be reimplemented around `ort`. *Fallback:* a small Python voice sidecar (`openwakeword`, `faster-whisper`, `kokoro-onnx`) that speaks the same protocol.
-- **CUDA builds of whisper-rs on Windows** need the CUDA toolkit installed. A CPU build or Vulkan is the fallback.
+- **Python sidecar packaging.** Development uses `uv run`. Release builds will need a frozen voice binary, or a `uv`-bootstrapped install (M6).
+- **CUDA on Windows.** faster-whisper uses pip-installed cuBLAS and cuDNN, made visible with `os.add_dll_directory`. If CUDA fails to load, it falls back to the CPU automatically.
+- **OpenCode latency.** OpenCode's coding-agent overhead adds a little time compared with a bare model call. Pick a fast `opencode.model` for voice.
 - **X/Twitter posting.** The API is paid, so it goes through the browser fallback, which may break when their UI changes and is against their terms of service. Use it with care.
 - **Screen control on Wayland.** Input injection and screenshots are restricted. It needs portals or ydotool, and is best effort.
 - **Prompt injection.** Content from web pages or emails could try to make Jarvis act. Mitigations: risky tools always need confirmation, and tool output is always treated as data, never as instructions.

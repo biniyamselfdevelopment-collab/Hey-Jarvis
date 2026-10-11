@@ -323,7 +323,7 @@ wheels = [
 [[package]]
 name = "jarvis-voice"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "faster-whisper" },
     { name = "kokoro-onnx" },

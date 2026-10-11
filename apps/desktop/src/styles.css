@@ -205,3 +205,55 @@ body,
     transition: none !important;
   }
 }
+
+/* ---- M1 additions ---- */
+.pill__form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mic {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  background: #2c2c2e;
+  color: var(--pill-fg);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.mic:hover {
+  background: var(--accent);
+  color: #000;
+}
+.confirm__detail {
+  display: block;
+  margin: -4px 0 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #1c1c1e;
+  color: #c7c7cc;
+  font: 12px/1.4 ui-monospace, "Cascadia Code", Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 72px;
+  overflow: auto;
+}
+.caption--you {
+  color: var(--pill-muted);
+}
+.caption__who {
+  margin-right: 6px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.caption--info {
+  color: var(--pill-muted);
+  font-size: 12px;
+}
+.caption--error {
+  color: #ff9f9a;
+  font-size: 12px;
+}

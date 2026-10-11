@@ -8,18 +8,19 @@
  * OpenCode's permission requests (shell commands, file edits) are routed to the
  * same voice/click confirmation gate as Jarvis's own risky tools.
  */
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync } from "node:fs";
 import { createServer } from "node:net";
-import { homedir } from "node:os";
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2/client";
-import { createOpencodeServer } from "@opencode-ai/sdk/v2/server";
 import type { Config as OpencodeConfig, Event, Part } from "@opencode-ai/sdk/v2";
-import type { JarvisConfig } from "../config.js";
+import { jarvisHome, type JarvisConfig } from "../config.js";
 import type { JarvisMcpServer } from "../mcp.js";
 import type { PermissionGate } from "../permissions.js";
 import { systemPrompt } from "../persona.js";
 import type { CoreMessage } from "../protocol.js";
 import { SentenceStream } from "../speech.js";
+import { startOpencodeServer, type OpencodeServer } from "./opencode-server.js";
 import type { Brain, TurnIO, TurnResult } from "./types.js";
 
 export const AGENT = "jarvis";
@@ -125,7 +126,7 @@ interface PendingPart {
 export class OpencodeBrain implements Brain {
   readonly label = "OpenCode";
   private client!: OpencodeClient;
-  private server: { url: string; close(): void } | null = null;
+  private server: OpencodeServer | null = null;
   private sessionID: string | null = null;
   private events = new AbortController();
 
@@ -148,20 +149,22 @@ export class OpencodeBrain implements Brain {
 
   async start(): Promise<void> {
     const { config } = this.opts;
-    this.server = await createOpencodeServer({
-      hostname: "127.0.0.1",
+    this.server = await startOpencodeServer({
       // OpenCode treats --port=0 as its default 4096, which may clash with the user's own OpenCode.
       port: config.opencode.port || (await freePort()),
-      timeout: 30_000,
       config: buildOpencodeConfig(config, this.opts.mcp),
     });
-    this.client = createOpencodeClient({ baseUrl: this.server.url, directory: config.opencode.directory ?? homedir() });
+    this.client = createOpencodeClient({ baseUrl: this.server.url, directory: config.opencode.directory ?? ensureWorkspace() });
     void this.listen();
   }
 
   async close(): Promise<void> {
     this.events.abort();
-    this.server?.close();
+    await this.server?.close();
+  }
+
+  get serverPid(): number | undefined {
+    return this.server?.pid;
   }
 
   /** Start a fresh conversation (e.g. "new chat"). */
@@ -316,6 +319,18 @@ export class OpencodeBrain implements Brain {
     const approved = await this.opts.gate.request(`opencode:${ask.permission}`, summary, detail);
     await this.client.permission.reply({ requestID: ask.id, reply: approved ? "once" : "reject" });
   }
+}
+
+/**
+ * Jarvis's own working folder for OpenCode. It's a git repo because OpenCode
+ * streams events in real time for repos (so Jarvis can start talking sooner),
+ * and it keeps OpenCode from indexing the whole home folder.
+ */
+export function ensureWorkspace(): string {
+  const dir = join(jarvisHome(), "workspace");
+  mkdirSync(dir, { recursive: true });
+  if (!existsSync(join(dir, ".git"))) spawnSync("git", ["init", "-q"], { cwd: dir, stdio: "ignore" });
+  return dir;
 }
 
 function freePort(): Promise<number> {

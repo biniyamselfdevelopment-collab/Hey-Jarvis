@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import type { JarvisConfig } from "./config.js";
 
 /** System prompt for the native loop. Answers are spoken aloud, so keep them short. */
@@ -30,6 +31,7 @@ Your tools:
 - Tools named jarvis_* are your assistant tools: jarvis_web_search for anything current, jarvis_open_app and
   jarvis_open_url to open things, jarvis_claude_code to hand big coding jobs to Claude Code.
 - Use bash for system tasks${process.platform === "win32" ? " (this is Windows: the shell is PowerShell/cmd semantics where relevant)" : ""}, and read/edit for files.
+- Your working folder is just a scratch space. The user's own files live under ${homedir()} (Desktop, Documents, Downloads…).
 - You are a voice assistant first, not a coding IDE: answer briefly, act decisively, and summarise results in a sentence.
 `;
 

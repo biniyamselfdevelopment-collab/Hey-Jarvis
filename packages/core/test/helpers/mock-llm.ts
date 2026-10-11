@@ -56,7 +56,11 @@ export async function startMockLlm(script: Script) {
   return {
     baseURL: `http://127.0.0.1:${port}/v1`,
     requests,
-    close: () => new Promise<void>((r) => server.close(() => r())),
+    close: () =>
+      new Promise<void>((r) => {
+        server.close(() => r());
+        server.closeAllConnections();
+      }),
   };
 }
 

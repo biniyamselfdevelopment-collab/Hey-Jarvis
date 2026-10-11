@@ -5,10 +5,13 @@
   "description": "A friendly voice-first helper that lives in your screen's notch and actually does things.",
   "packageManager": "pnpm@10.28.0",
   "scripts": {
+    "setup:windows": "powershell -ExecutionPolicy Bypass -File scripts/setup.ps1",
     "dev": "pnpm --filter @hey-jarvis/desktop tauri dev",
     "core": "pnpm --filter @hey-jarvis/core start",
+    "voice": "uv run --project apps/voice python -m jarvis_voice",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "test:voice": "cd apps/voice && uv run --group dev pytest -q"
   }
 }

@@ -19,7 +19,14 @@ import { ToolRunner } from "./tools/runner.js";
 import { systemTools } from "./tools/system.js";
 import { webTools } from "./tools/web.js";
 
-const send = (msg: CoreMessage): void => void process.stdout.write(encode(msg));
+let hostGone = false;
+const send = (msg: CoreMessage): void => {
+  if (!hostGone) process.stdout.write(encode(msg));
+};
+// EPIPE etc.: the host went away. Stop writing; stdin's "close" triggers shutdown.
+process.stdout.on("error", () => {
+  hostGone = true;
+});
 
 /** Tools OpenCode already has built-in equivalents of (with its own permission prompts). */
 const OPENCODE_HAS = new Set(["fetch_page", "run_shell"]);
@@ -64,11 +71,19 @@ async function main() {
     pending.add(p);
     void p.finally(() => pending.delete(p));
   });
-  lines.on("close", async () => {
-    await Promise.allSettled(pending);
+  // The host closes stdin when Jarvis quits; signals cover a terminal Ctrl+C.
+  let shuttingDown = false;
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    jarvis.gate.cancel();
+    await Promise.race([Promise.allSettled(pending), new Promise((r) => setTimeout(r, 1000))]);
     await jarvis.brain?.close?.();
     process.exit(0);
-  });
+  };
+  lines.on("close", shutdown);
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
 
   try {
     jarvis.brain = await createBrain(config, jarvis);

@@ -3,7 +3,7 @@
  * Verifies: Jarvis agent + persona injection, MCP tools, the voice gate for
  * Jarvis tools and for OpenCode's own bash permission, and streamed speech.
  */
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -46,8 +46,9 @@ describe.skipIf(!hasOpencode)("OpencodeBrain with the real OpenCode binary", () 
     // Isolate OpenCode's config/data from the developer's real setup.
     const home = mkdtempSync(join(tmpdir(), "jarvis-oc-"));
     for (const k of ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"]) process.env[k] = join(home, k);
+    process.env.JARVIS_HOME = join(home, "jarvis"); // exercises the default git workspace
     llm = await startMockLlm(script);
-    const config = JarvisConfig.parse({ opencode: { directory: home, config: mockProviderConfig(llm.baseURL) } });
+    const config = JarvisConfig.parse({ opencode: { config: mockProviderConfig(llm.baseURL) } });
     const post = defineTool({
       name: "post",
       description: "Post to social media",
@@ -62,10 +63,13 @@ describe.skipIf(!hasOpencode)("OpencodeBrain with the real OpenCode binary", () 
   }, 120_000);
 
   afterAll(async () => {
+    const pid = brain?.serverPid;
     await brain?.close();
     await mcp?.close();
     await llm?.close();
-  });
+    // The private OpenCode server must not outlive Jarvis.
+    if (pid) expect(() => process.kill(pid, 0)).toThrow();
+  }, 20_000);
 
   const turn = (text: string) => {
     const said: string[] = [];
@@ -77,6 +81,10 @@ describe.skipIf(!hasOpencode)("OpencodeBrain with the real OpenCode binary", () 
     expect(gate.waiting).toBe(true);
     gate.handleUtterance(answer);
   };
+
+  it("works in its own git workspace", () => {
+    expect(existsSync(join(process.env.JARVIS_HOME!, "workspace", ".git"))).toBe(true);
+  });
 
   it("streams the answer sentence by sentence using the Jarvis persona", async () => {
     const { said, result } = turn("hello");

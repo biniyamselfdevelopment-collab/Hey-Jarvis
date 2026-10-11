@@ -21,8 +21,15 @@ cuda = [
 [dependency-groups]
 dev = ["pytest>=8"]
 
-[tool.uv]
-package = false
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["jarvis_voice"]
+
+[project.scripts]
+jarvis-voice = "jarvis_voice.__main__:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

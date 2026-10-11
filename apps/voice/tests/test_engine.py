@@ -100,3 +100,11 @@ def test_capture_includes_pre_roll():
     audio = events[-1].audio
     # 3 pre-roll chunks (incl. the trigger chunk) + 2 captured chunks
     assert len(audio) == 5 * CHUNK
+
+
+def test_listen_without_a_microphone_reports_no_speech():
+    engine, wake, vad, events = make()
+    engine.mic_ok = False
+    engine.listen(follow_up=True)
+    assert types(events) == ["no_speech"]
+    assert engine.state is State.DORMANT

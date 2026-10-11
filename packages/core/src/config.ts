@@ -35,7 +35,7 @@ export const JarvisConfig = z.object({
       port: z.number().int().min(0).default(0),
       /** "provider/model", e.g. "anthropic/claude-sonnet-5-5". Unset → OpenCode's default model. */
       model: z.string().optional(),
-      /** Folder OpenCode works in. Defaults to your home folder. */
+      /** Folder OpenCode works in. Defaults to ~/.hey-jarvis/workspace (a small git repo, which streams best). */
       directory: z.string().optional(),
       /** Extra OpenCode config merged into the private server's config. */
       config: z.record(z.string(), z.unknown()).optional(),
@@ -53,9 +53,10 @@ export const JarvisConfig = z.object({
 });
 export type JarvisConfig = z.infer<typeof JarvisConfig>;
 
-export const CONFIG_DIR = process.env.JARVIS_HOME ?? join(homedir(), ".hey-jarvis");
+/** Where Jarvis keeps its config, models and workspace (override with JARVIS_HOME). */
+export const jarvisHome = (): string => process.env.JARVIS_HOME ?? join(homedir(), ".hey-jarvis");
 
-export async function loadConfig(path = join(CONFIG_DIR, "config.json")): Promise<JarvisConfig> {
+export async function loadConfig(path = join(jarvisHome(), "config.json")): Promise<JarvisConfig> {
   let raw: unknown = {};
   try {
     raw = JSON.parse(await readFile(path, "utf8"));

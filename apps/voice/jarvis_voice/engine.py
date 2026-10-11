@@ -57,6 +57,8 @@ class Engine:
         self.cfg = config or EngineConfig()
         self.state = State.DORMANT
         self.speaking = False
+        #: False when no microphone could be opened: never claim to be listening.
+        self.mic_ok = True
         self._lock = threading.Lock()
         self._history: list[np.ndarray] = []  # recent chunks for pre-roll
         self._buffer: list[np.ndarray] = []
@@ -71,6 +73,9 @@ class Engine:
     def listen(self, timeout_ms: int | None = None, follow_up: bool = False) -> None:
         """Start capturing without the wake word (hotkey, or a follow-up answer)."""
         with self._lock:
+            if not self.mic_ok:
+                self.emit(Event("no_speech"))
+                return
             self._start_capture(State.FOLLOW_UP if follow_up else State.CAPTURING, timeout_ms)
 
     def set_speaking(self, speaking: bool) -> None:

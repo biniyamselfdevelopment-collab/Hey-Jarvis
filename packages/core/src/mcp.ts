@@ -71,6 +71,10 @@ export async function startMcpServer(runner: ToolRunner): Promise<JarvisMcpServe
   return {
     url: `http://127.0.0.1:${port}/mcp`,
     token,
-    close: () => new Promise((resolve) => http.close(() => resolve())),
+    close: () =>
+      new Promise((resolve) => {
+        http.close(() => resolve());
+        http.closeAllConnections(); // clients (OpenCode) keep connections alive
+      }),
   };
 }
