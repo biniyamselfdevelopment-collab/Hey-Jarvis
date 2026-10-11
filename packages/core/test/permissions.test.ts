@@ -43,7 +43,7 @@ describe("PermissionGate", () => {
   it("approves by voice and announces the request", async () => {
     const { sent, gate } = setup();
     const p = gate.request("post", "I'll post 'hello' to X.");
-    expect(sent).toContainEqual({ type: "speak", text: "I'll post 'hello' to X. Should I go ahead?" });
+    expect(sent).toContainEqual({ type: "speak", text: "I'll post 'hello' to X. Should I go ahead?", expectReply: true });
     expect(gate.handleUtterance("yes go ahead")).toBe(true);
     await expect(p).resolves.toBe(true);
     expect(gate.waiting).toBe(false);
@@ -54,7 +54,7 @@ describe("PermissionGate", () => {
     const p = gate.request("post", "Post it.");
     gate.handleUtterance("umm what");
     expect(gate.waiting).toBe(true);
-    expect(sent.at(-1)).toEqual({ type: "speak", text: "Sorry, was that a yes or a no?" });
+    expect(sent.at(-1)).toEqual({ type: "speak", text: "Sorry, was that a yes or a no?", expectReply: true });
     gate.handleUtterance("banana");
     await expect(p).resolves.toBe(false);
   });

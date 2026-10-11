@@ -23,9 +23,11 @@ export type CoreMessage =
   | { type: "ready"; brains: BrainSummary[] }
   | { type: "state"; state: JarvisState }
   /** Text Jarvis should say out loud (host runs TTS) and show as a caption. */
-  | { type: "speak"; text: string }
+  | { type: "speak"; text: string; expectReply?: boolean }
+  /** Non-spoken status for the pill (e.g. "Starting OpenCode…"). */
+  | { type: "notice"; text: string }
   | { type: "tool_activity"; tool: string; status: "started" | "done" | "error"; detail?: string }
-  | { type: "confirm_request"; requestId: string; tool: string; summary: string }
+  | { type: "confirm_request"; requestId: string; tool: string; summary: string; detail?: string }
   /** Ask the host to run a native tool (screen, input, keychain). */
   | { type: "host_tool_call"; callId: string; name: string; args: unknown }
   | { type: "error"; message: string };

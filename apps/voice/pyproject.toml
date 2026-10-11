@@ -1,0 +1,29 @@
+[project]
+name = "jarvis-voice"
+version = "0.1.0"
+description = "Hey Jarvis voice sidecar: wake word, VAD, Whisper STT and Kokoro TTS, all on-device."
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "numpy>=2.0",
+  "onnxruntime>=1.20",
+  "faster-whisper>=1.2.1",
+  "kokoro-onnx>=0.6.1",
+  "sounddevice>=0.5",
+]
+
+[project.optional-dependencies]
+# CUDA 12 runtime libraries for faster-whisper on NVIDIA GPUs (Windows/Linux).
+cuda = [
+  "nvidia-cublas-cu12>=12.4; sys_platform != 'darwin'",
+  "nvidia-cudnn-cu12>=9.1,<10; sys_platform != 'darwin'",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -54,14 +54,14 @@ export class PermissionGate {
     return this.pending !== null;
   }
 
-  request(tool: string, summary: string): Promise<boolean> {
+  request(tool: string, summary: string, detail?: string): Promise<boolean> {
     if (this.pending) this.settle(false);
     return new Promise((resolve) => {
       const requestId = randomUUID();
       this.pending = { requestId, tool, summary, reasked: false, resolve };
       this.send({ type: "state", state: "confirm" });
-      this.send({ type: "confirm_request", requestId, tool, summary });
-      this.send({ type: "speak", text: `${summary} Should I go ahead?` });
+      this.send({ type: "confirm_request", requestId, tool, summary, ...(detail ? { detail } : {}) });
+      this.send({ type: "speak", text: `${summary} Should I go ahead?`, expectReply: true });
     });
   }
 
@@ -72,7 +72,7 @@ export class PermissionGate {
     const answer = parseConfirmation(text);
     if (answer === "unclear" && !p.reasked) {
       p.reasked = true;
-      this.send({ type: "speak", text: "Sorry, was that a yes or a no?" });
+      this.send({ type: "speak", text: "Sorry, was that a yes or a no?", expectReply: true });
       return true;
     }
     if (answer !== "yes") this.send({ type: "speak", text: "Okay, cancelled." });
